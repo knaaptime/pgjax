@@ -1,0 +1,14 @@
+name: pgjax
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.13
+  - polyagamma
+  - numpy
+  - scipy
+  - nanobind
+  - jax
+  - cmake
+  - scikit-build-core
+  - pytest
+  - cxx-compiler

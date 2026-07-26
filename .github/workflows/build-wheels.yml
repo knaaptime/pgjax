@@ -1,0 +1,190 @@
+name: Build and publish to PyPI
+
+on:
+  push:
+    tags:
+      - "v*" # v1.2.3 → PyPI, v1.2.3a1/b1/rc1 → TestPyPI
+  workflow_dispatch:
+
+jobs:
+  build_wheels:
+    name: Build wheels on ${{ matrix.os }}
+    permissions:
+      id-token: write # MANDATORY for trusted publishing to PyPI
+      contents: write # MANDATORY for the GitHub release action
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64 — manylinux via cibuildwheel's default container
+          - os: ubuntu-latest
+            arch: x86_64
+          # Linux aarch64 — emulated via QEMU
+          - os: ubuntu-latest
+            arch: aarch64
+          # macOS Apple Silicon (arm64) -- pinned rather than macos-latest,
+          # since macos-latest now resolves to macOS 26 (Tahoe) and
+          # Homebrew's bottles for that host embed a minimum target of 26.0,
+          # which would make the wheel unusable on any older macOS. Bump
+          # this pin (and the target below) deliberately, not automatically.
+          - os: macos-15
+            arch: arm64
+            macosx_deployment_target: "15.0"
+          # Windows x86_64 -- pinned rather than windows-latest, since
+          # windows-latest now resolves to a windows-2025-vs2026 preview
+          # image whose bundled flang compiler fails to compile reference
+          # LAPACK's Fortran source (a compiler bug, not fixable here).
+          # Bump this pin deliberately once VS2026/flang has matured.
+          - os: windows-2022
+            arch: AMD64
+    runs-on: ${{ matrix.os }}
+    env:
+      CIBW_BUILD: "cp311-* cp312-* cp313-* cp314-*"
+      # jaxlib (needed at build time for XLA FFI headers) has no musllinux
+      # wheels published at all -- only manylinux, macOS, and Windows. That's
+      # an upstream gap, not something fixable from this workflow, so skip
+      # musllinux targets entirely rather than let every build fail on it.
+      CIBW_SKIP: "*-musllinux*"
+      CIBW_ARCHS: ${{ matrix.arch }}
+      CIBW_BUILD_VERBOSITY: 1
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macosx_deployment_target }}
+
+      # ── Linux ──────────────────────────────────────────────────────────────
+      # The default manylinux2014 image is too old: jaxlib and scipy no
+      # longer publish wheels for it, which forced pip to backtrack to
+      # ancient jax versions and eventually build scipy from source (which
+      # then failed on a missing OpenBLAS). Use manylinux_2_28 instead, which
+      # is current enough for modern prebuilt wheels of everything involved.
+      CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+      CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
+      # CHOLMOD (from SuiteSparse) isn't preinstalled in the manylinux
+      # container either; manylinux_2_28 has PowerTools enabled by default,
+      # so plain yum/dnf install works, no EPEL/CRB needed. However the RPM
+      # installs headers to /usr/include/suitesparse/ (not /usr/include/
+      # directly), and the project's CMakeLists.txt only guesses that
+      # subdirectory under CHOLMOD_PREFIX, which defaults to the Python venv
+      # path (wrong) rather than /usr when unset. Pass CHOLMOD_PREFIX=/usr
+      # explicitly via scikit-build-core's CMake-args env var so it lands as
+      # an actual CMake variable regardless of how the project reads it.
+      CIBW_BEFORE_BUILD_LINUX: >
+        (yum install -y suitesparse-devel || dnf install -y suitesparse-devel || apt-get install -y libsuitesparse-dev || true) &&
+        pip install jax
+      CIBW_ENVIRONMENT_LINUX: >
+        SKBUILD_CMAKE_ARGS="-DCHOLMOD_PREFIX=/usr"
+
+      # ── macOS ──────────────────────────────────────────────────────────────
+      # CHOLMOD (from SuiteSparse) isn't preinstalled on the macOS runner
+      # images, so CMake can't find it. Install it via Homebrew and point
+      # CMake at the Homebrew prefix so configure can locate it.
+      CIBW_BEFORE_BUILD_MACOS: >
+        brew install suitesparse &&
+        pip install jax
+      CIBW_ENVIRONMENT_MACOS: >
+        SKBUILD_CMAKE_ARGS="-DCHOLMOD_PREFIX=$(brew --prefix suitesparse);-DCMAKE_PREFIX_PATH=$(brew --prefix suitesparse)"
+
+      # ── Windows ────────────────────────────────────────────────────────────
+      # CHOLMOD (from SuiteSparse) isn't preinstalled here either. vcpkg
+      # ships preinstalled on GitHub-hosted Windows runners, so use it. The
+      # umbrella `suitesparse` port only pulls in CHOLMOD's partition module
+      # by default -- cholgraph needs Modify (cholmod_updown) too, which vcpkg
+      # gates behind its `gpl` feature since Modify/MatrixOps/Supernodal are
+      # GPL-licensed (this also pulls in MatrixOps and Supernodal, which
+      # apt/Homebrew's suitesparse packages build unconditionally but vcpkg
+      # treats as opt-in).
+      CIBW_BEFORE_BUILD_WINDOWS: >
+        pip install delvewheel jax &&
+        vcpkg install "suitesparse[gpl]:x64-windows"
+      CIBW_ENVIRONMENT_WINDOWS: >
+        CMAKE_PREFIX_PATH="C:/vcpkg/installed/x64-windows"
+      # --add-path tells delvewheel where to find the CHOLMOD DLLs to bundle,
+      # since the vcpkg bin dir isn't on PATH by default.
+      CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: >
+        delvewheel repair -w {dest_dir} --add-path C:\vcpkg\installed\x64-windows\bin {wheel}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # Enable QEMU for Linux aarch64 cross-compilation.
+      - name: Set up QEMU (Linux aarch64 only)
+        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'aarch64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.21
+        with:
+          output-dir: wheelhouse
+
+      - name: Upload wheel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.arch }}
+          path: wheelhouse/*.whl
+
+  build_sdist:
+    name: Build source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist
+        run: |
+          pip install build
+          python -m build --sdist --outdir wheelhouse
+      - name: Upload sdist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: wheelhouse/*.tar.gz
+
+  publish:
+    name: Publish to PyPI and create release
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    # Runs on any tag. test-* tags build+artifact only (no publish step fires).
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # v1.2.3a1 / v1.2.3b2 / v1.2.3rc1 → TestPyPI
+      - name: Publish pre-release to TestPyPI
+        if: |
+          startsWith(github.ref_name, 'v') &&
+          (contains(github.ref_name, 'a') || contains(github.ref_name, 'b') || contains(github.ref_name, 'rc'))
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist/
+
+      # v1.2.3 (clean) → real PyPI
+      - name: Publish release to PyPI
+        if: |
+          startsWith(github.ref_name, 'v') &&
+          !contains(github.ref_name, 'a') &&
+          !contains(github.ref_name, 'b') &&
+          !contains(github.ref_name, 'rc')
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+      # GitHub Release for any v* tag; marked pre-release when applicable
+      - name: Create GitHub Release
+        if: startsWith(github.ref_name, 'v')
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ contains(github.ref_name, 'a') || contains(github.ref_name, 'b') || contains(github.ref_name, 'rc') }}
+          files: dist/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

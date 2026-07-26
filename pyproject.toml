@@ -1,0 +1,22 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0", "jax>=0.9.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "pgjax"
+version = "0.1.0"
+description = "JAX-native on-device Pólya-Gamma sampler as an XLA FFI custom call"
+readme = "README.md"
+license = {text = "BSD-3"}
+requires-python = ">=3.9"
+dependencies = [
+    "jax>=0.9.0",
+    "numpy",
+]
+
+[project.optional-dependencies]
+test = ["pytest", "scipy"]
+
+[tool.scikit-build]
+cmake.build-type = "Release"
+wheel.packages = ["src/pgjax"]
