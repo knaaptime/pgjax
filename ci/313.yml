@@ -14,6 +14,7 @@ dependencies:
   - pytest
   - cxx-compiler
   - pytensor
+  - polyagamma
   - pip
   - pip:
     - jax >=0.9.0 # force jax from pip so windows has an installer
