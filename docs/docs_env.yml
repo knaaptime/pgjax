@@ -1,0 +1,35 @@
+name: test
+channels:
+  - conda-forge
+dependencies:
+  - python >=3.13
+  - pip
+  - scipy
+  - numpy
+  - scikit-sparse
+  - nanobind
+  - suitesparse
+  - cmake
+  - scikit-build-core
+  - pytest
+  - cxx-compiler
+  - pytensor
+  - polyagamma
+
+  # testing
+  - codecov
+  - coverage
+  - pytest>=7
+  - pytest-cov
+  - pytest-xdist
+  # docs
+  - numpydoc
+  - nbsphinx
+  - myst-parser
+  - sphinx>=7
+  - sphinx-autodoc2
+  - sphinxcontrib-bibtex
+  - sphinx-copybutton
+  - sphinx-immaterial
+  - myst-nb
+  - watermark

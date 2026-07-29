@@ -82,15 +82,21 @@ def _dispatch_vmap(axis_size, in_batched, h, z, seed):
 def pg_sample(h, z, key):
     """Draw ``omega ~ PG(h, z)`` element-wise, on-device.
 
-    Args:
-        h: shape ``[n]`` float64 — PG shape (h = 1 for Bernoulli/logit; positive
-            integer for the exact sum-of-Devroye path).
-        z: shape ``[n]`` float64 — PG tilt (the linear predictor).
-        key: a JAX PRNG key; ``vmap`` over a batch of keys draws each element's
-            batch with its own RNG stream.
+    Parameters
+    ----------
+    h : array_like
+        Shape ``[n]`` float64. PG shape (h = 1 for Bernoulli/logit; positive
+        integer for the exact sum-of-Devroye path).
+    z : array_like
+        Shape ``[n]`` float64. PG tilt (the linear predictor).
+    key : jax.Array
+        A JAX PRNG key. ``vmap`` over a batch of keys draws each element's
+        batch with its own RNG stream.
 
-    Returns:
-        ``omega`` with the same shape as ``h``.
+    Returns
+    -------
+    omega : jax.Array
+        Draws from ``PG(h, z)`` with the same shape as ``h``.
     """
     _require_x64()
     h = jnp.asarray(h, jnp.float64)
