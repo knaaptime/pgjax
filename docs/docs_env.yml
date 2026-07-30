@@ -1,36 +1,22 @@
-name: test
+name: pgjax-docs
 channels:
   - conda-forge
 dependencies:
-  - python >=3.13
+  - python>=3.13
   - pip
-  - scipy
   - numpy
-  - scikit-sparse
-  - nanobind
-  - suitesparse
-  - cmake
-  - scikit-build-core
-  - pytest
-  - cxx-compiler
-  - pytensor
-  - polyagamma
   - jax
 
-  # testing
-  - codecov
-  - coverage
-  - pytest>=7
-  - pytest-cov
-  - pytest-xdist
+  # build pgjax from source (pip install -e .)
+  - nanobind
+  - cmake
+  - scikit-build-core
+  - cxx-compiler
+
   # docs
-  - numpydoc
-  - nbsphinx
   - myst-parser
   - sphinx>=7
-  - sphinx-autodoc2
   - sphinxcontrib-bibtex
   - sphinx-copybutton
-  - sphinx-immaterial
-  - myst-nb
+  - furo
   - watermark

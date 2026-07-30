@@ -38,8 +38,6 @@ jobs:
           - os: windows-2022
             arch: AMD64
     runs-on: ${{ matrix.os }}
-    environment:
-      name: pypi  # <-- Set your environment name here
     env:
       CIBW_BUILD: "cp311-* cp312-* cp313-* cp314-*"
       # jaxlib (needed at build time for XLA FFI headers) has no musllinux
@@ -150,6 +148,10 @@ jobs:
     permissions:
       id-token: write
       contents: write
+    # MANDATORY for trusted publishing: the environment name here MUST match the
+    # one configured in the PyPI/TestPyPI trusted-publisher UI. Without it, the
+    # OIDC token exchange fails with `invalid-publisher` / `environment: MISSING`.
+    environment: pypi
     # Runs on any tag. test-* tags build+artifact only (no publish step fires).
     if: startsWith(github.ref, 'refs/tags/')
     steps:
