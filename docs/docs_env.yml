@@ -15,6 +15,7 @@ dependencies:
   - cxx-compiler
   - pytensor
   - polyagamma
+  - jax
 
   # testing
   - codecov
