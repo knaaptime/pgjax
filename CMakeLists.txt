@@ -22,7 +22,7 @@ execute_process(
 list(APPEND CMAKE_PREFIX_PATH "${NANOBIND_CMAKE_DIR}")
 find_package(nanobind REQUIRED CONFIG)
 
-nanobind_add_module(pgjax_cpp src/cpp/pgjax.cpp)
+nanobind_add_module(pgjax_cpp NOMINSIZE src/cpp/pgjax.cpp)
 target_include_directories(pgjax_cpp PRIVATE ${XLA_FFI_INCLUDE_DIR})
 
 install(TARGETS pgjax_cpp LIBRARY DESTINATION .)

@@ -4,10 +4,12 @@ Draw ``omega ~ PG(h, z)`` from inside ``@jax.jit`` / ``lax.scan`` with no host
 round-trip — the native replacement for ``jax.pure_callback(random_polyagamma)``
 that taxes every Gibbs sweep (and serializes under ``jax.pmap``).
 
-Exact for the Bernoulli/logit augmentation (``h = 1``) via the Devroye method
-(integer ``h`` = sum of Devroye draws), and for real-valued ``h`` — the
-Negative-Binomial ``h = y + alpha`` — via the tail-corrected Gamma-sum
-representation (validated bias-free vs ``polyagamma``; see the README).
+Draws follow the hybrid scheme of ``polyagamma``'s ``random_polyagamma``
+(``method=None``): exact Devroye draws for the Bernoulli/logit augmentation
+(``h = 1``), the exact alternate sampler for other real ``h`` below the
+saddlepoint region — e.g. the Negative-Binomial ``h = y + alpha`` — a
+saddlepoint rejection sampler for larger ``h``, and a moment-matched normal above
+``h = 50`` (see the README).
 
 Example::
 
