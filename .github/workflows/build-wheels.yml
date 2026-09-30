@@ -57,52 +57,24 @@ jobs:
       # is current enough for modern prebuilt wheels of everything involved.
       CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
       CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
-      # CHOLMOD (from SuiteSparse) isn't preinstalled in the manylinux
-      # container either; manylinux_2_28 has PowerTools enabled by default,
-      # so plain yum/dnf install works, no EPEL/CRB needed. However the RPM
-      # installs headers to /usr/include/suitesparse/ (not /usr/include/
-      # directly), and the project's CMakeLists.txt only guesses that
-      # subdirectory under CHOLMOD_PREFIX, which defaults to the Python venv
-      # path (wrong) rather than /usr when unset. Pass CHOLMOD_PREFIX=/usr
-      # explicitly via scikit-build-core's CMake-args env var so it lands as
-      # an actual CMake variable regardless of how the project reads it.
-      CIBW_BEFORE_BUILD_LINUX: >
-        (yum install -y suitesparse-devel || dnf install -y suitesparse-devel || apt-get install -y libsuitesparse-dev || true) &&
-        pip install jax
-      CIBW_ENVIRONMENT_LINUX: >
-        SKBUILD_CMAKE_ARGS="-DCHOLMOD_PREFIX=/usr"
+      # pgjax is self-contained C++ (it links no SuiteSparse and no OpenMP), so
+      # no platform needs system libraries.  jax comes from pyproject's
+      # [build-system] pin -- the build is isolated, so nothing is
+      # pip-installed here.  cibuildwheel v4 repairs Windows wheels with
+      # delvewheel by default.
 
-      # ── macOS ──────────────────────────────────────────────────────────────
-      # CHOLMOD (from SuiteSparse) isn't preinstalled on the macOS runner
-      # images, so CMake can't find it. Install it via Homebrew and point
-      # CMake at the Homebrew prefix so configure can locate it.
-      CIBW_BEFORE_BUILD_MACOS: >
-        brew install suitesparse &&
-        pip install jax
-      CIBW_ENVIRONMENT_MACOS: >
-        SKBUILD_CMAKE_ARGS="-DCHOLMOD_PREFIX=$(brew --prefix suitesparse);-DCMAKE_PREFIX_PATH=$(brew --prefix suitesparse)"
-
-      # ── Windows ────────────────────────────────────────────────────────────
-      # CHOLMOD (from SuiteSparse) isn't preinstalled here either. vcpkg
-      # ships preinstalled on GitHub-hosted Windows runners, so use it. The
-      # umbrella `suitesparse` port only pulls in CHOLMOD's partition module
-      # by default -- cholgraph needs Modify (cholmod_updown) too, which vcpkg
-      # gates behind its `gpl` feature since Modify/MatrixOps/Supernodal are
-      # GPL-licensed (this also pulls in MatrixOps and Supernodal, which
-      # apt/Homebrew's suitesparse packages build unconditionally but vcpkg
-      # treats as opt-in).
-      CIBW_BEFORE_BUILD_WINDOWS: >
-        pip install delvewheel jax &&
-        vcpkg install "suitesparse[gpl]:x64-windows"
-      CIBW_ENVIRONMENT_WINDOWS: >
-        CMAKE_PREFIX_PATH="C:/vcpkg/installed/x64-windows"
-      # --add-path tells delvewheel where to find the CHOLMOD DLLs to bundle,
-      # since the vcpkg bin dir isn't on PATH by default.
-      CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: >
-        delvewheel repair -w {dest_dir} --add-path C:\vcpkg\installed\x64-windows\bin {wheel}
+      # ── Every platform: test the repaired wheel before it can publish ─────
+      # The reference-sampler tests need polyagamma, which has no macOS arm64 or
+      # cp314 wheels; they run in unittests.yml.  These checks run everywhere.
+      CIBW_TEST_REQUIRES: pytest
+      CIBW_TEST_COMMAND: >
+        python {project}/ci/check_wheel.py &&
+        pytest -q {project}/tests/test_batching.py
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # setuptools-scm needs tags
 
       # Enable QEMU for Linux aarch64 cross-compilation.
       - name: Set up QEMU (Linux aarch64 only)
@@ -112,7 +84,9 @@ jobs:
           platforms: arm64
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2.21
+        # v2.x predates CPython 3.14, so the cp314-* selector above matched
+        # nothing and 3.14 wheels were silently never built.
+        uses: pypa/cibuildwheel@v4.2.1
         with:
           output-dir: wheelhouse
 
@@ -127,6 +101,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # setuptools-scm needs tags
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

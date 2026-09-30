@@ -1,14 +1,23 @@
 [build-system]
-requires = ["scikit-build-core>=0.10", "nanobind>=2.0", "jax>=0.9.0"]
+# Build against the *oldest* supported jax, the runtime floor below.  The XLA
+# FFI headers ship with jaxlib and stamp the handler API version into the
+# extension; newer jaxlib accepts older handlers but not newer ones.  Wheels
+# built against whatever jax was newest (FFI API 0.3) failed to register on
+# jax 0.9.0/0.9.1 (API 0.2), which `jax>=0.9.0` allows, and took JAX's CPU
+# backend down with them.  Raise this pin together with the runtime floor,
+# never alone.
+requires = ["scikit-build-core>=1.1", "setuptools-scm>=8", "nanobind>=2.0", "jax==0.9.0"]
 build-backend = "scikit_build_core.build"
 
 [project]
 name = "pgjax"
-version = "0.1.0"
+# The version comes from the git tag (vX.Y.Z) via setuptools-scm; see
+# [tool.setuptools_scm].  Never set it by hand.
+dynamic = ["version"]
 description = "JAX-native on-device Pólya-Gamma sampler as an XLA FFI custom call"
 readme = "README.md"
-license = {text = "BSD-3"}
-requires-python = ">=3.9"
+license = {text = "BSD-3-Clause"}
+requires-python = ">=3.11"
 dependencies = [
     "jax>=0.9.0",
     "numpy",
@@ -20,3 +29,11 @@ test = ["pytest", "scipy"]
 [tool.scikit-build]
 cmake.build-type = "Release"
 wheel.packages = ["src/pgjax"]
+
+# Version from the git tag (vX.Y.Z), like the other packages.  An sdist records
+# it in PKG-INFO, so builds from the sdist (conda-forge) need no git.
+[[tool.dynamic-metadata]]
+provider = "scikit_build_core.metadata.setuptools_scm"
+
+[tool.setuptools_scm]
+# Required (even empty) for the setuptools-scm provider.

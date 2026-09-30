@@ -55,6 +55,13 @@ The RNG is a per-call `xoshiro256**` seeded (via `splitmix64`) from the JAX PRNG
 key, so draws are reproducible and each call owns its stream — safe when several
 threads call at once. Normals and exponentials come from ziggurat samplers.
 
+An array longer than 65,536 elements is split into blocks of that size, each
+with its own stream, and the blocks are drawn in parallel on every hardware
+thread (set `PGJAX_NUM_THREADS` to cap it). The blocks depend only on the array
+length, so a draw is the same on any machine and any thread count. On a large
+Negative-Binomial model (8.1M cells) this takes the draw from 3.6 s to 0.33 s on
+16 threads.
+
 ## Status
 
 - ✅ All `h > 0`: the logit (`h = 1`), Negative-Binomial (`h = y + alpha`) and
