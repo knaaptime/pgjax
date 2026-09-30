@@ -3,4 +3,4 @@
 
 .. currentmodule:: pgjax
 
-.. autofunction:: _sample_batched
+.. autodata:: _sample_batched

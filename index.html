@@ -256,7 +256,7 @@ replacement for <code class="docutils literal notranslate"><span class="pre">jax
 device↔host round-trip on every Pólya-Gamma Gibbs sweep and serializes under
 <code class="docutils literal notranslate"><span class="pre">jax.pmap</span></code>.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">jax</span><span class="o">,</span><span class="w"> </span><span class="nn">pgjax</span>
-<span class="n">jax</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="s2">&quot;jax_enable_x64&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+<span class="n">jax</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="s2">"jax_enable_x64"</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
 
 <span class="nd">@jax</span><span class="o">.</span><span class="n">jit</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">omega_update</span><span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">z</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
@@ -265,37 +265,54 @@ device↔host round-trip on every Pólya-Gamma Gibbs sweep and serializes under
 </div>
 <section id="method">
 <h2>Method<a class="headerlink" href="#method" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">pg_sample</span></code> follows the hybrid dispatch of
+<a class="reference external" href="https://github.com/zoj613/polyagamma"><code class="docutils literal notranslate"><span class="pre">zoj613/polyagamma</span></code></a> (<code class="docutils literal notranslate"><span class="pre">method=None</span></code>),
+changed where that scheme is measurably biased:</p>
 <ul class="simple">
-<li><p><strong>Small integer <code class="docutils literal notranslate"><span class="pre">h</span></code></strong> (incl. Bernoulli/logit <code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">=</span> <span class="pre">1</span></code>): the exact <strong>Devroye</strong>
-sampler for <code class="docutils literal notranslate"><span class="pre">PG(1,</span> <span class="pre">z)</span></code> (Polson, Scott &amp; Windle 2013), summed <code class="docutils literal notranslate"><span class="pre">h</span></code> times.</p></li>
-<li><p><strong>Real <code class="docutils literal notranslate"><span class="pre">h</span></code></strong> (e.g. Negative-Binomial <code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">=</span> <span class="pre">y</span> <span class="pre">+</span> <span class="pre">alpha</span></code>): the exact infinite-sum
-(Gamma) representation truncated at <code class="docutils literal notranslate"><span class="pre">K</span></code> terms with a <strong>moment-matched Gamma
-tail correction</strong> for the remainder. The tail mean/variance have closed forms
-(<code class="docutils literal notranslate"><span class="pre">Σ</span> <span class="pre">1/d_k</span> <span class="pre">=</span> <span class="pre">(π/2a)tanh(πa)</span></code>, and its <code class="docutils literal notranslate"><span class="pre">a</span></code>-derivative), so the correction cancels
-the truncation bias in the mean — it is precisely that bias (truncation with no
-tail term) that collapses <code class="docutils literal notranslate"><span class="pre">alpha</span></code> in NB models when omitted.</p></li>
-<li><p><strong>Large <code class="docutils literal notranslate"><span class="pre">h</span></code></strong>: the <strong>saddlepoint</strong> rejection sampler (Windle, Polson &amp; Scott
-2014, arXiv:1405.0506). A two-piece bounding-kernel envelope proposes, and the
-saddlepoint density approximation accepts, giving <strong>O(1)</strong> per accepted draw
-versus the O(K) Gamma sum. Used automatically when <code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">&gt;=</span> <span class="pre">8</span></code> or
-(<code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">&gt;</span> <span class="pre">4</span></code> and <code class="docutils literal notranslate"><span class="pre">|z|</span> <span class="pre">&lt;=</span> <span class="pre">4</span></code>) — the hybrid dispatch thresholds validated in
-<code class="docutils literal notranslate"><span class="pre">zoj613/polyagamma</span></code>.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">&gt;</span> <span class="pre">50</span></code></strong>: a normal with the exact Pólya-Gamma mean and variance.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">8</span> <span class="pre">&lt;=</span> <span class="pre">h</span> <span class="pre">&lt;=</span> <span class="pre">50</span></code></strong>: the <strong>saddlepoint</strong> rejection sampler (Windle, Polson &amp;
+Scott 2014, arXiv:1405.0506), O(1) per accepted draw.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">=</span> <span class="pre">1</span></code></strong> (Bernoulli/logit), <strong>or integer <code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">&lt;=</span> <span class="pre">4</span></code> with <code class="docutils literal notranslate"><span class="pre">|z|</span> <span class="pre">&lt;=</span> <span class="pre">1</span></code></strong>: the
+exact <strong>Devroye</strong> sampler for <code class="docutils literal notranslate"><span class="pre">PG(1,</span> <span class="pre">z)</span></code> (Polson, Scott &amp; Windle 2013), summed
+<code class="docutils literal notranslate"><span class="pre">h</span></code> times.</p></li>
+<li><p><strong>Otherwise, <code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">&lt;</span> <span class="pre">h</span> <span class="pre">&lt;</span> <span class="pre">8</span></code></strong> — e.g. Negative-Binomial <code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">=</span> <span class="pre">y</span> <span class="pre">+</span> <span class="pre">alpha</span></code>: the
+<strong>alternate</strong> sampler (Windle, Polson &amp; Scott 2014, Section 4).</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">&lt;</span> <span class="pre">1</span></code></strong>: the Gamma-series representation — 20 terms plus a remainder
+matched in mean and variance — exact in both moments.</p></li>
 </ul>
-<p>Validated against <code class="docutils literal notranslate"><span class="pre">random_polyagamma</span></code> over <code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">∈</span> <span class="pre">[0.5,</span> <span class="pre">40]</span> <span class="pre">×</span> <span class="pre">z</span> <span class="pre">∈</span> <span class="pre">[-8,</span> <span class="pre">8]</span></code>:
-KS ≤ 0.009, relative mean error ≤ 0.34%. The saddlepoint path is validated to
-KS &lt; 0.02 and relative mean error &lt; 2% over <code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">∈</span> <span class="pre">{8,…,40}</span> <span class="pre">×</span> <span class="pre">z</span> <span class="pre">∈</span> <span class="pre">{0,1,-4,5}</span></code>.</p>
+<p>Each departure from <code class="docutils literal notranslate"><span class="pre">polyagamma</span></code> 2.0.2 removes a bias measured with 2M draws
+against the exact mean and variance:</p>
+<ul class="simple">
+<li><p><strong>Alternate sampler, <code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">&lt;</span> <span class="pre">h</span> <span class="pre">&lt;</span> <span class="pre">4</span></code>, small <code class="docutils literal notranslate"><span class="pre">|z|</span></code></strong>: <code class="docutils literal notranslate"><span class="pre">polyagamma</span></code> runs +0.4–0.9% in
+the mean and +1–5% in the variance. Its right-hand envelope uses the constant
+<code class="docutils literal notranslate"><span class="pre">(π/2)^(h/2)</span></code>, where both its Gamma proposal and the density’s tail carry
+<code class="docutils literal notranslate"><span class="pre">(π/2)^h</span></code>; pgjax uses the latter.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">&lt;</span> <span class="pre">1</span></code></strong>: the alternate method assumes <code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">&gt;=</span> <span class="pre">1</span></code>; below it <code class="docutils literal notranslate"><span class="pre">polyagamma</span></code> runs
+−0.4–0.8% in the mean. pgjax uses the Gamma series.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">4</span> <span class="pre">&lt;</span> <span class="pre">h</span> <span class="pre">&lt;</span> <span class="pre">8</span></code> with <code class="docutils literal notranslate"><span class="pre">|z|</span> <span class="pre">&lt;=</span> <span class="pre">4</span></code></strong>: <code class="docutils literal notranslate"><span class="pre">polyagamma</span></code> uses the saddlepoint
+approximation, 1–2% low in the variance. pgjax uses the exact alternate
+sampler.</p></li>
+</ul>
+<p>The saddlepoint and alternate samplers are ported from <code class="docutils literal notranslate"><span class="pre">polyagamma</span></code>
+(BSD-3-Clause). Every regime is tested against the closed-form mean and
+variance.</p>
 <p>The RNG is a per-call <code class="docutils literal notranslate"><span class="pre">xoshiro256**</span></code> seeded (via <code class="docutils literal notranslate"><span class="pre">splitmix64</span></code>) from the JAX PRNG
-key, so draws are reproducible and each call owns its stream — safe under the
-concurrent per-device calls <code class="docutils literal notranslate"><span class="pre">jax.pmap</span></code> issues.</p>
+key, so draws are reproducible and each call owns its stream — safe when several
+threads call at once. Normals and exponentials come from ziggurat samplers.</p>
+<p>An array longer than 65,536 elements is split into blocks of that size, each
+with its own stream, and the blocks are drawn in parallel on every hardware
+thread (set <code class="docutils literal notranslate"><span class="pre">PGJAX_NUM_THREADS</span></code> to cap it). The blocks depend only on the array
+length, so a draw is the same on any machine and any thread count. On a large
+Negative-Binomial model (8.1M cells) this takes the draw from 3.6 s to 0.33 s on
+16 threads.</p>
 </section>
 <section id="status">
 <h2>Status<a class="headerlink" href="#status" title="Link to this heading">¶</a></h2>
 <ul class="simple">
-<li><p>✅ Exact <code class="docutils literal notranslate"><span class="pre">PG(1,</span> <span class="pre">z)</span></code> / integer <code class="docutils literal notranslate"><span class="pre">h</span></code> (Devroye), real <code class="docutils literal notranslate"><span class="pre">h</span></code> (tail-corrected Gamma
-sum), and large <code class="docutils literal notranslate"><span class="pre">h</span></code> (saddlepoint) — covers the logit (<code class="docutils literal notranslate"><span class="pre">h=1</span></code>),
-Negative-Binomial (<code class="docutils literal notranslate"><span class="pre">h=y+alpha</span></code>), and large-shape regimes.</p></li>
-<li><p>Hybrid dispatch is automatic: the appropriate sampler is selected from
-<code class="docutils literal notranslate"><span class="pre">(h,</span> <span class="pre">z)</span></code> with no API change.</p></li>
+<li><p>✅ All <code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">&gt;</span> <span class="pre">0</span></code>: the logit (<code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">=</span> <span class="pre">1</span></code>), Negative-Binomial (<code class="docutils literal notranslate"><span class="pre">h</span> <span class="pre">=</span> <span class="pre">y</span> <span class="pre">+</span> <span class="pre">alpha</span></code>) and
+large-shape regimes.</p></li>
+<li><p>Dispatch is automatic: the sampler is selected from <code class="docutils literal notranslate"><span class="pre">(h,</span> <span class="pre">z)</span></code> with no API
+change.</p></li>
 </ul>
 <p>CPU-only (the sampler is cheap scalar work; the point is to keep it on-device
 next to the rest of a JIT’d Gibbs sweep).</p>
@@ -369,7 +386,7 @@ next to the rest of a JIT’d Gibbs sweep).</p>
       
     </aside>
   </div>
-</div><script src="_static/documentation_options.js?v=01f34227"></script>
+</div><script src="_static/documentation_options.js?v=938c9ccc"></script>
     <script src="_static/doctools.js?v=fd6eb6e6"></script>
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="_static/scripts/furo.js?v=46bd48cc"></script>
