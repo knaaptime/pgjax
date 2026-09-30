@@ -129,3 +129,23 @@ def test_normal_approx_matches_reference(h, z):
     an = _analytic_mean(h, z)
     assert stats.ks_2samp(xj, xr).statistic < 0.02
     assert abs(xj.mean() - an) / an < 0.01
+
+
+def test_multi_block_draw_is_reproducible_and_exact_in_mean():
+    """Arrays over one block (2**16) draw in parallel, one stream per block.
+
+    Blocks are fixed by the array length, not the thread count, so the same key
+    gives the same draw; the blocks' streams differ, and the draw keeps the
+    exact PG mean.
+    """
+    n = 5 * 2**16 + 123  # several blocks and a ragged last one
+    h = jnp.full(n, 0.6)  # h < 1: the Gamma-series branch
+    z = jnp.full(n, 1.5)
+    key = jax.random.PRNGKey(7)
+    a = np.asarray(pgjax.pg_sample(h, z, key))
+    b = np.asarray(pgjax.pg_sample(h, z, key))
+    np.testing.assert_array_equal(a, b)
+    blocks = a[: 5 * 2**16].reshape(5, 2**16)
+    assert not np.array_equal(blocks[0], blocks[1])
+    se = np.sqrt(_analytic_var(0.6, 1.5) / n)
+    assert abs(a.mean() - _analytic_mean(0.6, 1.5)) < 5 * se

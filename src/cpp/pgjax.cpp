@@ -26,6 +26,10 @@
 #include <nanobind/nanobind.h>
 
 #include <algorithm>
+#include <atomic>
+#include <cstdlib>
+#include <thread>
+#include <vector>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
@@ -877,13 +881,65 @@ inline double sample_pg(double h, double z, Rng& rng) {
   return sample_pg_alternate(h, z, rng);
 }
 
-// Draw omega[i] ~ PG(h[i], z[i]) for i in [0, n).
-void draw_range(const double* h, const double* z, int64_t n, uint64_t seed,
-                double* out) {
+// Draw omega[i] ~ PG(h[i], z[i]) for i in [0, n) from one stream.
+void draw_serial(const double* h, const double* z, int64_t n, uint64_t seed,
+                 double* out) {
   Rng rng(seed);
   for (int64_t i = 0; i < n; ++i) {
     out[i] = std::max(sample_pg(h[i], z[i], rng), 1e-12);
   }
+}
+
+// Elements per independently seeded block.  Blocks are fixed by n alone, never
+// by the thread count, so a draw is reproducible on any machine.
+constexpr int64_t kBlock = int64_t{1} << 16;
+
+// Worker threads: PGJAX_NUM_THREADS if set, else every hardware thread.
+unsigned num_threads() {
+  static const unsigned n = [] {
+    if (const char* env = std::getenv("PGJAX_NUM_THREADS")) {
+      long v = std::strtol(env, nullptr, 10);
+      if (v > 0) return static_cast<unsigned>(v);
+    }
+    unsigned hw = std::thread::hardware_concurrency();
+    return hw > 0 ? hw : 1u;
+  }();
+  return n;
+}
+
+// Draw omega[i] ~ PG(h[i], z[i]) for i in [0, n).  An array of up to one block
+// is one stream seeded by `seed`.  A larger one is split into blocks, each with
+// its own stream, drawn in parallel: PG draws are independent, and at the sizes
+// of large count models (millions of cells, most with h < 1 and so the 21-Gamma
+// series) a single thread is the whole Gibbs sweep's bottleneck.
+void draw_range(const double* h, const double* z, int64_t n, uint64_t seed,
+                double* out) {
+  if (n <= kBlock) {
+    draw_serial(h, z, n, seed, out);
+    return;
+  }
+  const int64_t blocks = (n + kBlock - 1) / kBlock;
+  auto run_block = [&](int64_t b) {
+    const int64_t lo = b * kBlock;
+    const int64_t len = std::min(kBlock, n - lo);
+    uint64_t s = seed ^ (0xD1B54A32D192ED03ULL * static_cast<uint64_t>(b + 1));
+    draw_serial(h + lo, z + lo, len, s, out + lo);
+  };
+  const unsigned T =
+      static_cast<unsigned>(std::min<int64_t>(num_threads(), blocks));
+  if (T <= 1) {
+    for (int64_t b = 0; b < blocks; ++b) run_block(b);
+    return;
+  }
+  std::atomic<int64_t> next{0};
+  auto worker = [&] {
+    for (int64_t b; (b = next.fetch_add(1)) < blocks;) run_block(b);
+  };
+  std::vector<std::thread> pool;
+  pool.reserve(T - 1);
+  for (unsigned t = 1; t < T; ++t) pool.emplace_back(worker);
+  worker();
+  for (auto& th : pool) th.join();
 }
 
 }  // namespace
