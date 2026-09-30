@@ -103,7 +103,7 @@ def test_saddlepoint_matches_reference(h, z):
     "h, z, uses_saddle",
     [
         (7.9, 0.0, False),  # h < 8 -> alternate
-        (8.0, 0.0, True),   # h >= 8 -> saddlepoint
+        (8.0, 0.0, True),  # h >= 8 -> saddlepoint
         (0.99, 1.0, False),  # h < 1 -> Gamma series
         (1.01, 1.0, False),  # just above 1 -> alternate
     ],

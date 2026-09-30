@@ -23,11 +23,17 @@ Example::
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 
 import pgjax_cpp as _cpp
 
-__version__ = "0.1.0"
+try:
+    # Single source of truth: the version in the git tag, via the installed
+    # distribution's metadata (setuptools-scm).
+    from importlib.metadata import version as _dist_version
+
+    __version__ = _dist_version("pgjax")
+except Exception:  # running from a source tree that was never installed
+    __version__ = "0+unknown"
 __all__ = ["pg_sample"]
 
 jax.ffi.register_ffi_target(
@@ -56,11 +62,35 @@ def _seed_from_key(key):
     return seed
 
 
+@jax.custom_batching.custom_vmap
 def _sample_batched(h, z, seed):
+    """One FFI call for a batch: ``h``, ``z`` are ``(B, ...)``, ``seed`` is ``(B,)``."""
     call = jax.ffi.ffi_call(
         "pgjax_sample_batched_f64", jax.ShapeDtypeStruct(h.shape, h.dtype)
     )
     return call(h, z, seed)
+
+
+@_sample_batched.def_vmap
+def _sample_batched_vmap(axis_size, in_batched, h, z, seed):
+    # A further vmap over an already-batched call: merge the outer axis into
+    # the batch axis, so any depth of nesting is still one native call.
+    # Without this rule the raw batched ffi_call has no batching rule and
+    # vmap-of-vmap fails.
+    h_b, z_b, seed_b = in_batched
+    if not h_b:
+        h = jnp.broadcast_to(h, (axis_size,) + h.shape)
+    if not z_b:
+        z = jnp.broadcast_to(z, (axis_size,) + z.shape)
+    if not seed_b:
+        seed = jnp.broadcast_to(seed, (axis_size,) + seed.shape)
+    outer, inner = h.shape[0], h.shape[1]
+    out = _sample_batched(
+        h.reshape((outer * inner,) + h.shape[2:]),
+        z.reshape((outer * inner,) + z.shape[2:]),
+        seed.reshape(outer * inner),
+    )
+    return out.reshape((outer, inner) + out.shape[1:]), True
 
 
 @jax.custom_batching.custom_vmap
